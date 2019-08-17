@@ -1,2 +1,4 @@
 *.z80 linguist-language=Assembly
+*.z80 linguist-detectable=true
 *.bas linguist-language=Basic
+*.bas linguist-detectable=true
