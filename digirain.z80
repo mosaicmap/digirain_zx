@@ -1,0 +1,417 @@
+;
+; Efekt "digital rail" z filmu Matrix (1999)
+; pro počítače ZX Spectrum a kompatibilní.
+;
+; assembler: pasmo 
+;
+; autor: Martin Pokorný
+; verze: 2019-08-17
+; licence: MIT 
+;
+
+org 28672   ; $7000
+
+ROM_CHAN_OPEN  equ  5633    ; A = č. kanálu
+ROM_CLS  equ  3435
+ROM_SET_BORDER  equ  8859   ; A = č barvy (ink)
+
+CHAN_K_EDIT  equ  1         ; kanál pro editační oblast; 'K' 
+CHAN_S_MAIN_SCREEN  equ  2  ; kanál pro hlavní obrazovku 32 x 22 znaků; 'S' 
+
+SYSVAR_CHARS  equ  23606    ; 23606 5C36 IY+FC CHARS
+                            ; Address of standard character set minus 0x0100.
+                            ; V std. ROM ukazuje na $3C00 = 15360
+;VRAM_START  equ  $4000  ; = %01000000 00000000 = 16384
+;VRAM_ATTR_START  equ  $5800  ; = %01011000 00000000 = 22528
+
+INK_BLACK   equ  %00000000
+INK_BLUE    equ  %00000001
+INK_RED     equ  %00000010
+INK_MAGENTA equ  %00000011
+INK_GREEN   equ  %00000100
+INK_CYAN    equ  %00000101
+INK_YELLOW  equ  %00000110
+INK_WHITE   equ  %00000111
+PAPER_BLACK   equ  %00000000
+PAPER_BLUE    equ  %00001000
+PAPER_RED     equ  %00010000
+PAPER_MAGENTA equ  %00011000
+PAPER_GREEN   equ  %00100000
+PAPER_CYAN    equ  %00101000
+PAPER_YELLOW  equ  %00110000
+PAPER_WHITE   equ  %00111000
+BRIGHT	equ  %01000000
+FLASH	equ  %10000000 
+
+; -----------------------------------------------------------------------------
+start
+
+    call init_screen
+
+    call prng_moss_init_seed
+
+    call init_drops_vars
+    
+main_loop
+    
+    ld DE, 0   ; index (dvojregistr kvůli tomu, že se sčítá s HL...)
+    ld B, DROPS_NUM    
+_loop_line
+    push BC
+    call move_drop
+    pop BC      ; (potřeba zachovat B pro cyklus)
+    inc DE      ; index++
+    djnz _loop_line
+
+    ; pouze čekací smyčka
+    ld  B, 7
+_loop_wait
+    halt
+    djnz _loop_wait
+
+    jr main_loop
+
+    ; ret   ; (není potřeba, protože běží v nekonečném cyklu)
+; -----------------------------------------------------------------------------
+
+MAX_HEAD_Y  equ  23
+DROPS_NUM  equ  24
+DROP_MIN_LEN  equ  7
+
+; podle indexu se vybere skupina parametrů každého sloupce: 
+; x, y_head, length
+var_drop_x
+    defb  0,0,0,0,0,0,0,0    
+    defb  0,0,0,0,0,0,0,0    
+    defb  0,0,0,0,0,0,0,0    
+var_drop_len
+    defb  0,0,0,0,0,0,0,0    
+    defb  0,0,0,0,0,0,0,0    
+    defb  0,0,0,0,0,0,0,0    
+var_drop_head_y
+    defb  0,0,0,0,0,0,0,0    
+    defb  0,0,0,0,0,0,0,0    
+    defb  0,0,0,0,0,0,0,0    
+
+; 64 znaků;  viz "get_random_from_chars"
+var_chars  defm  "0123456789AaCcDdEFHhIiJjKkLlMNoPpqRrTtVvWXxYyZz|-+,=^()<>#*/[]:;"
+
+; -----------------------------------------------------------------------------
+
+; generátor pseudonáhodných čísel
+include "prng_moss.z80"
+    ; prng_moss_init_seed
+    ; prng_moss 
+
+; -----------------------------------------------------------------------------
+
+; Aktualizuje jeden sloupec definovaný indexem v DE.
+;
+; očekává:
+;   DE - index v "var_drop_*";  neměnit!
+; mění: AF, BC, HL
+move_drop
+
+    ld  HL, var_drop_x
+    add HL, DE      ; (HL) = var_drop_x[DE]
+    ld  C, (HL)     ; C = X         ; 28 T
+
+    ld  HL, var_drop_head_y
+    add HL, DE      ; (HL) = var_drop_head_y[DE] 
+    ld  B, (HL)     ; B = Y         ; 28 T
+    
+    inc (HL)        ; var_drop_head_y[DE]++
+
+    ; ----- head
+    
+    ; Y > 23  --> nektreslit začátek (head)
+    ld A, B
+    cp MAX_HEAD_Y + 1
+    jr NC, _move_dd_head_end    ; A >= 24  --> C = 0
+
+    push DE
+    ; -- draw_drop_head
+    call get_random_from_chars  ; výsledek v A  (mění: AF, DE, HL)
+    push AF
+    call addr_vram_bitmap_at    ; B = Y, C = X; výsledek v HL  (mění: AF, HL)
+    pop AF
+    call print_char_at_address  ; (mění: AF, DE)    
+    call addr_vram_attr_from_bitmap     ; výsledek v HL (mění: AF, HL)    
+    ld (HL), INK_WHITE
+    ; --
+    pop DE
+_move_dd_head_end
+
+    ; ----- head - jeden znak nad začátkem
+ 
+    ; Y < 1  nebo  Y > 24  --> neobarvovat jeden znak nad začátkem
+    ld A, B
+    cp 1
+    jr C, _move_dd_head_minus1_end      ; A < 1  --> C = 1
+    cp MAX_HEAD_Y + 2
+    jr NC, _move_dd_head_minus1_end     ; A >= 25  --> C = 0
+
+    push DE
+    ; -- draw_drop_head_minus1
+    dec B       ; o jeden znak výše ...
+    call addr_vram_attr_at  ; B = Y, C = X; výsledek v HL  (mění: AF, E)
+    ld (HL), INK_GREEN
+    inc B       ; vrátit zpět B
+    ; --
+    pop DE
+_move_dd_head_minus1_end
+
+    ; ----- tail  (počítá s tím, že se BC nezměnilo ...)
+
+    ; výpočet y konce ... 
+    ; y_tail = y_head - délka
+    ld HL, var_drop_len
+    add HL, DE  ; (HL) = var_drop_len[DE]
+    ld A, B     ; A = var_drop_head_y[DE]   
+    sub (HL)    ; Y_tail = A = var_drop_head_y[DE] - var_drop_len[DE]
+
+    ld B, A     ; B = Y_tail !
+                ; C = X (nezměněno)
+    add A, %10000000    ; aby se nemuselo porovnávat záporné číslo ...
+                        ; s  jp M ...
+    ; Y_tail < 0  --> nekreslit 
+    cp %10000000
+    jr C, _move_dd_tail_end     ; "A < 0"  --> C = 1
+
+    push DE
+    ; -- draw_drop_tail
+    call addr_vram_attr_at  ; B = Y, C = X; výsledek v HL  (mění: AF, E)
+    ld (HL), INK_BLACK
+    ; --
+    pop DE
+_move_dd_tail_end
+
+    ; ----- test na dokončení sloupce
+
+    ; Y_tail == 23  --> reset sloupce 
+    ld A, B
+    cp MAX_HEAD_Y
+    ret NZ      ; A != 23  --> Z = 0
+    
+    call reset_vars_for_one_drop  ; (mění: AF, HL)
+
+    ret
+
+
+; -----------------------------------------------------------------------------
+
+; Smaže obrazovku, nastaví výchozí barvy
+;
+; změní: AF, ??
+init_screen
+
+    ld  (IY+$53), PAPER_BLACK | INK_GREEN   ; 23693 5C8D IY+53 ATRR_P
+    call ROM_CLS
+    
+    ; ld  A, CHAN_S_MAIN_SCREEN
+    ; call ROM_CHAN_OPEN
+
+    ld  A, INK_BLACK
+    call ROM_SET_BORDER
+
+    ret
+
+
+; Inicializuje proměnné  var_drop_x, var_drop_len, var_drop_head_y.
+; Volá se jen 1x na začátku.
+;
+; mění: AF, B, DE, HL
+init_drops_vars
+
+    ld  DE, 0
+    ld  B, DROPS_NUM
+_i_d_vars__loop
+    push BC
+    call reset_vars_for_one_drop
+    pop BC
+    inc DE
+    djnz _i_d_vars__loop
+
+    ret
+
+
+; Nastaví jeden sloupec na výchozí hodnoty. 
+;
+; očekává
+;   DE = index ve var_*; viz DROPS_NUM;  neměnit!
+; mění:  AF, HL
+reset_vars_for_one_drop
+    ; -- var_drop_head_y
+    ld  HL, var_drop_head_y
+    add HL, DE
+    ld  (HL), 0
+
+    ; -- var_drop_x
+    ld  HL, var_drop_x
+    add HL, DE
+    push DE
+    call prng_moss      ; (mění: E)
+    pop DE
+    and %00011111       ; náhodné číslo 0-31
+    ld  (HL), A         ; var_drop_x
+
+    ; -- var_drop_len
+    ld  HL, var_drop_len
+    add HL, DE
+    push DE
+    call prng_moss      ; (mění: E)
+    pop DE
+    and %00011111       ; náhodné číslo 0-31
+    add A, DROP_MIN_LEN ; DROP_MIN_LEN až (31+DROP_MIN_LEN)
+    ld  (HL), A         ; var_drop_len
+
+    ret
+
+
+; -----------------------------------------------------------------------------
+
+; Vrátí náhodný znak z proměnné var_chars.
+;
+; výsledek v A (kód znaku)
+; mění:  AF, DE, HL
+get_random_from_chars
+    ld  HL, var_chars
+    call prng_moss  ; (mění: E)
+    and %00111111   ; 0-63
+    ld  D, 0
+    ld  E, A
+    add HL, DE
+    ld  A, (HL)
+
+    ret
+
+
+; Vypíše zadaný znak na zadanou adresu. 
+; Pozor, neumí UDG ani klíčová slova BASICu.
+;  
+; očekává
+;   A - znak 
+;   HL - adresa ve videopaměti, kde se má znak vypsat 
+; mění: AF, DE
+print_char_at_address
+    push HL     ; zachovat HL
+    push BC     ; zachovat BC
+    push HL
+
+    ld H, 0
+    ld L, A
+    add HL,HL
+    add HL,HL
+    add HL,HL
+
+    ld DE, (SYSVAR_CHARS)
+    add HL, DE
+    ; v HL je adresa znaku v A v "generátoru znaků" v ROM
+
+    pop DE
+    ; v DE adresa ve videopaměti, kde se má znak vypsat 
+
+    ; zkopírovat 8 bytů (znak) z "generátoru znaků" do videopaměti
+    ; (pozn.: ldi ani ldir se nehodí)
+    ; ld B, 8
+    ; kvůli fontu BASICu není potřeba vykreslovat horní byte ...
+    inc D
+    inc L
+    ld B, 7     ; (horní byte se přeskakuje, proto 7)
+_p_char_at_copy_bytes
+    ld A, (HL)
+    ld (DE), A
+    inc D       ; další px-řádek (viz adresace videopaměti)
+    inc L       ; další byte znaku
+    djnz _p_char_at_copy_bytes
+
+    pop BC      ; vrátit původní BC
+    pop HL      ; vrátit původní HL
+
+    ret
+
+
+; HL v oblasti bitmapy --> HL v oblasti atributů.
+; [Vilím - Assembler a ZX Spectrum - díl 2;  strana 4]        
+;
+; očekává:  
+;   HL - adresa ve videopaměti pro bitmapu; 
+;        pozor, pixelový řádek (ppp) musí být = 0
+; výsledek:
+;   HL - adresa ve videopaměti pro oblast atributů 
+; mění:  AF, HL
+; 27 T 
+addr_vram_attr_from_bitmap
+    ld A, H
+    rrca
+    rrca
+    rrca
+    or %01011000
+    ld H, A
+    ret
+
+
+; Vypočítá adresu ve videopaměti pro zadané znakové souřadnice.
+; 
+; očekává:
+;   B = Y [znak] -- 0-23
+;   C = X [znak] -- 0-31
+; výsledek:
+;   HL - adresa ve videopaměti pro zadané znakové souřadnice
+; mění: AF, HL
+; 53 T
+addr_vram_bitmap_at
+
+    ; 1) výpočet L ... rrr ccccc   
+    ; rrr         
+    ld  A,B
+    and %00000111
+    rrca         ; posun rrr na správnou pozici 00000rrr -> rrr00000
+    rrca
+    rrca
+    ; ccccc
+    or  C
+    ld  L,A
+    
+    ; 2) výpočet H ... 010 ss ppp 
+    ld  A,B
+    and %00011000       ; jen ss; ppp je 0
+    or  %01000000
+    ld  H,A
+    ret
+
+
+; Vypočítá adresu v oblasti atributů ve videopaměti 
+; pro zadané znakové souřadnice
+;
+; očekává:
+;   B = Y [znak] -- 0-23
+;   C = X [znak] -- 0-31
+; výsledek:
+;   HL - adresa atributu na zadaných souřadnicách
+; změní:  AF, E
+; 57 T
+addr_vram_attr_at
+    
+    ; 1) výpočet L ...
+    ld  A, B        
+    rrca            ; y7 y6 y5 y4 y3 y2 y1 y0 --> y2 y1 y0 * * y5 y4 y3
+    rrca
+    rrca            
+    ld  E, A        ; mezivýsledek uschovat do E (je potřeba 2x)
+
+    and %11100000   ; pro L je potřeba jen  y2 y1 y0
+    or  C
+    ld  L, A        ; L = y2 y1 y0  x4 x3 x2 x1 x0
+
+    ; 2) výpočet H ...
+    ld  A, E        ; A = y2 y1 y0 * * y5 y4 y3
+                    ; * * * * y5 y4 y3  , ale y5 = 0  ->
+    and %00000011
+    or  %01011000   ; H = 010110 y4 y3
+    ld  H, A
+
+    ret
+
+
+my_mark  defm  "[", 127, " 2019 Martin Pokorny]"

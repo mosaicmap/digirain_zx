@@ -1,0 +1,41 @@
+
+
+prng_moss_seed  db  123
+
+
+; Inicializace prng_moss_seed. 
+; Změní: AF
+prng_moss_init_seed
+    ; 23672 5C78 IY+3E FRAMES - Incremented once for each TV frame displayed.
+    ld A, (IY+$3E)  ; LSB z proměnné FRAMES -- zvyšuje se každou 1/50 s
+    ld (prng_moss_seed), A    
+    ret
+
+
+; Jednoduchý generátor 8 b pseudonáhodného čísla od A.J.Moss.
+; Převzato z http://www.z80.info/pseudo-random.txt.
+;
+; "Používá podobnou metodu jako RND v ROM."
+; Výpočet (podle původního textu):
+;   "R -> (33*R) mod 257  ; R = random number seed"
+;   "S = R - 1"
+;
+; výsledek: A  
+; mění: AF, E
+prng_moss
+
+    ld  A, (prng_moss_seed)
+    ld  E, A
+
+    rrca ; multiply by 32
+    rrca
+    rrca
+    xor 31  ; $1F
+
+    add A, E
+    sbc A, 255 ; carry
+
+    ld (prng_moss_seed), A
+    ret 
+
+
