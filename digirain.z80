@@ -5,7 +5,7 @@
 ; assembler: pasmo 
 ;
 ; autor: Martin Pokorný
-; verze: 2019-08-17
+; verze: 2019-08-23
 ; licence: MIT 
 ;
 
@@ -63,7 +63,6 @@ _loop_line
     inc DE      ; index++
     djnz _loop_line
 
-    ; pouze čekací smyčka
     ld  B, 7
 _loop_wait
     halt
@@ -81,17 +80,11 @@ DROP_MIN_LEN  equ  7
 ; podle indexu se vybere skupina parametrů každého sloupce: 
 ; x, y_head, length
 var_drop_x
-    defb  0,0,0,0,0,0,0,0    
-    defb  0,0,0,0,0,0,0,0    
-    defb  0,0,0,0,0,0,0,0    
+    defs  DROPS_NUM
 var_drop_len
-    defb  0,0,0,0,0,0,0,0    
-    defb  0,0,0,0,0,0,0,0    
-    defb  0,0,0,0,0,0,0,0    
+    defs  DROPS_NUM
 var_drop_head_y
-    defb  0,0,0,0,0,0,0,0    
-    defb  0,0,0,0,0,0,0,0    
-    defb  0,0,0,0,0,0,0,0    
+    defs  DROPS_NUM
 
 ; 64 znaků;  viz "get_random_from_chars"
 var_chars  defm  "0123456789AaCcDdEFHhIiJjKkLlMNoPpqRrTtVvWXxYyZz|-+,=^()<>#*/[]:;"
@@ -286,6 +279,8 @@ get_random_from_chars
     ret
 
 
+; -----------------------------------------------------------------------------
+
 ; Vypíše zadaný znak na zadanou adresu. 
 ; Pozor, neumí UDG ani klíčová slova BASICu.
 ;  
@@ -413,5 +408,6 @@ addr_vram_attr_at
 
     ret
 
+; -----------------------------------------------------------------------------
 
 my_mark  defm  "[", 127, " 2019 Martin Pokorny]"
